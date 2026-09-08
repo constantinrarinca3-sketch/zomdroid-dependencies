@@ -2,6 +2,7 @@ package com.zomdroid.agent;
 
 import com.zomdroid.agent.decorators.QuickSave;
 import com.zomdroid.agent.decorators.ShaderUnit;
+import com.zomdroid.agent.decorators.TileDepthDiagnostics;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.dynamic.ClassFileLocator;
@@ -29,7 +30,8 @@ public class Main {
         }
 
         String renderer = System.getProperty("zomdroid.renderer");
-        boolean isGL4ES = renderer.equals("GL4ES");
+        boolean isGL4ES = "GL4ES".equals(renderer);
+        boolean isMobileGlues = "MOBILEGLUES_EXPERIMENTAL".equals(renderer);
 
         try {
             if (isGL4ES) {
@@ -43,6 +45,26 @@ public class Main {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+
+        // This does not rewrite shader code or change compile results. It only preserves the
+        // otherwise hidden GLES compiler/linker reason for the MobileGlues TileDepth failure.
+        if (isMobileGlues) {
+            try {
+                new ByteBuddy().with(TypeValidation.DISABLED)
+                        .rebase(typePool.describe("zombie.core.opengl.ShaderUnit").resolve(), locator)
+                        .visit(Advice.to(TileDepthDiagnostics.ShaderUnitCompile.class).on(named("compile")))
+                        .make()
+                        .load(classLoader, ClassReloadingStrategy.of(inst));
+
+                new ByteBuddy().with(TypeValidation.DISABLED)
+                        .rebase(typePool.describe("zombie.core.opengl.ShaderProgram").resolve(), locator)
+                        .visit(Advice.to(TileDepthDiagnostics.ShaderProgramCompile.class).on(named("compile")))
+                        .make()
+                        .load(classLoader, ClassReloadingStrategy.of(inst));
+            } catch (Exception e) {
+                System.out.println("[zomdroid tiledepth] could not install diagnostic: " + e);
+            }
         }
 
         // Deliberately outside the renderer check above: quick save has nothing to do with which
