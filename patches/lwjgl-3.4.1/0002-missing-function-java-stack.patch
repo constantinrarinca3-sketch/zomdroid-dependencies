@@ -1,0 +1,35 @@
+diff --git a/modules/lwjgl/core/src/main/c/org_lwjgl_system_ThreadLocalUtil.c b/modules/lwjgl/core/src/main/c/org_lwjgl_system_ThreadLocalUtil.c
+index a6aa2995e..fa2b02411 100644
+--- a/modules/lwjgl/core/src/main/c/org_lwjgl_system_ThreadLocalUtil.c
++++ b/modules/lwjgl/core/src/main/c/org_lwjgl_system_ThreadLocalUtil.c
+@@ -4,6 +4,8 @@
+  */
+ #include "common_tools.h"
+ #include <string.h>
++#include <stdio.h>
++#include <unistd.h>
+ 
+ static void JNICALL functionMissingAbort(void) {
+     jboolean async;
+@@ -11,6 +13,21 @@ static void JNICALL functionMissingAbort(void) {
+     jobject thread     = (*env)->CallStaticObjectMethod(env, Thread, (*env)->GetStaticMethodID(env, Thread, "currentThread", "()Ljava/lang/Thread;"));
+     jstring threadName = (*env)->      CallObjectMethod(env, thread, (*env)->      GetMethodID(env, Thread,      "toString", "()Ljava/lang/String;"));
+ 
++    // All unavailable GL entry points share this abort stub. Dump the Java caller before
++    // FatalError so ZomDroid can identify the exact generated LWJGL binding that reached it.
++    // stderr is captured asynchronously into native.log, hence the bounded drain interval.
++    fputs("\n=== ZOMDROID LWJGL MISSING FUNCTION JAVA STACK ===\n", stderr);
++    jmethodID dumpStack = (*env)->GetStaticMethodID(env, Thread, "dumpStack", "()V");
++    if (dumpStack != NULL) {
++        (*env)->CallStaticVoidMethod(env, Thread, dumpStack);
++    } else if ((*env)->ExceptionCheck(env)) {
++        (*env)->ExceptionDescribe(env);
++        (*env)->ExceptionClear(env);
++    }
++    fputs("=== END ZOMDROID LWJGL MISSING FUNCTION JAVA STACK ===\n", stderr);
++    fflush(stderr);
++    usleep(250000);
++
+     char msg[256];
+     snprintf(
+         msg, 256,
