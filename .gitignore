@@ -2,4 +2,5 @@
 /jniwrapper/build/
 /zomdroid-agent/target/
 /zomdroid-agent/dependency-reduced-pom.xml
+/pz-renderer-hook/target/
 /targets/
