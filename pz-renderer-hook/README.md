@@ -1,26 +1,41 @@
-# PZRendererHook (experimental)
+# PZRendererHook V3 census (experimental)
 
-A standalone Java agent for Project Zomboid 42.20.3. It intercepts only the WORLD draw-buffer
-build and replaces the semantic `glBuffer(10)..glBuffer(11)` combined-chunk interval with an
-instanced renderer. UI and mod code are untouched.
+V3 keeps the validated V2 normal cached-chunk compiler and adds a read-only census over the exact
+Project Zomboid WORLD submission (`SpriteRenderer.buildStateDrawBuffer`). UI remains structurally
+excluded because `buildStateUIDrawBuffer` is never hooked.
 
-Each backend draw consumes up to eight existing color/depth texture pairs (16 texture units), so
-the implementation does not duplicate PZ's chunk textures or create a second texture cache.
+The census does **not** batch new tile families yet. It measures how much of the remaining WORLD
+stream can be grouped conservatively without crossing PZ command/state barriers:
+
+- plain textured `glDraw` runs: up to 16 distinct textures per estimated batch;
+- color+depth `glDraw` runs: up to 8 distinct color textures and 8 distinct depth textures;
+- `useAttribArray`, non-transparent styles, null textures, `tex2`, and every non-draw command break
+  or exclude a candidate.
+
+This is intentionally a measurement build. The next renderer backend should only target the family
+that the census proves is large enough to matter.
 
 Enable with:
 
 ```text
--javaagent:/path/PZRendererHook.jar
 MOBILEGLUES_PZ_WORLD_COMPILER=1
+MOBILEGLUES_PZ_CENSUS=1
+-Dzomdroid.renderer=MOBILEGLUES_EXPERIMENTAL
+-javaagent:/storage/emulated/0/Download/PZRendererHook-v3-census.jar
 ```
 
-The hook additionally requires `-Dzomdroid.renderer=MOBILEGLUES_EXPERIMENTAL`. Set
-`MOBILEGLUES_PZ_CENSUS=1` only for the short validation run; it prints one cumulative line every
-300 WORLD frames.
+Expected startup markers:
 
-Safety rules:
+```text
+ZOMDROID_PZ_WORLD_COMPILER_V3 enabled=1 hook=installed version=3 census=world
+ZOMDROID_PZ_WORLD_COMPILER_V3 hook=transformed class=zombie.core.SpriteRenderer
+```
 
-* no matching semantic chunk block: original renderer runs;
-* unsupported chunk draw: original renderer runs;
-* shader/GL initialization failure: the original frame still runs and the hook disables itself;
-* UI never enters the compiler.
+Every 300 WORLD submissions the new line is:
+
+```text
+ZOMDROID_PZ_WORLD_CENSUS_V3 ... plain_src=... plain_batches16=... plain_elim_est=... depth_src=... depth_batches8=... depth_elim_est=...
+```
+
+The existing V2 telemetry remains active in the same run, so the already validated cached-chunk
+compiler can be compared against the larger candidate families.
