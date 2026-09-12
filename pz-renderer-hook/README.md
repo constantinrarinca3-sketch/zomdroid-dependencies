@@ -1,46 +1,52 @@
-# PZRendererHook V4 batch + grammar (experimental)
+# PZRendererHook V5 depth batch (experimental)
 
-V4 keeps the validated WORLD-only `SpriteRenderer.buildStateDrawBuffer` hook and the conservative
-cached-chunk compiler. UI remains structurally excluded because `buildStateUIDrawBuffer` is never
-hooked.
+V5 keeps the WORLD-only `SpriteRenderer.buildStateDrawBuffer` hook, the validated V2 cached-chunk compiler,
+and the V4 passive world/grammar census.  It adds an actual batching path for the dominant B42.20.3
+`TileDepthShader` command family observed on device.
 
-This build does two things in the same run:
+Safety rules:
 
-1. **Real batching:** the proven cached-chunk renderer now sizes its instanced batch from
-   `GL_MAX_TEXTURE_IMAGE_UNITS`, using two samplers per color/depth pair and capping at 16 pairs.
-   A 16-unit device stays at batch 8; a 32-unit device can use batch 16.
-2. **Passive command-grammar census:** every eligible WORLD `glDraw` with `tex1 != null`,
-   `tex2 == null`, transparent style and no attrib array is classified by the exact immediate
-   command before and after it, split by whether a non-zero `StartShader` is active. This census
-   never changes the command stream and is emitted only when `MOBILEGLUES_PZ_CENSUS=1`.
+- only `TransparentStyle` `StartShader(non-zero) -> glDraw` packets are considered;
+- draw must have `tex != null`, `tex1 != null`, `tex2 == null`, `useAttribArray == -1`, finite geometry/UVs;
+- shader must be PZ `TileDepthShader` (this includes `tileWithDepth` / `opaqueWithDepth`), never arbitrary shaders;
+- the exact 4-uniform `zDepth, drawPixels, zDepthBlendZ, zDepthBlendToZ` setter chain is copied per draw;
+- any non-redundant GL state command is a hard barrier;
+- `glDepthMask` is absorbed only when it writes the already-known current value;
+- backend is capped at 8 distinct color/depth texture pairs (16 samplers total), the proven device-safe limit;
+- PZ's already-compiled tile-depth GLSL is captured at runtime and cloned.  If the source shape cannot be
+  transformed and linked exactly, that shader is marked failed and those draws stay on the original path;
+- after a compiled group, V5 replays the final original `StartShader` so following commands see the same PZ
+  shader/uniform state.
 
-The broader V3 WORLD census remains in the same JAR so one device run provides both aggregate draw
-shape and the exact `tex1` command grammar needed for the next safe compiler extension.
+The passive V5 grammar/census remains enabled with `MOBILEGLUES_PZ_CENSUS=1` in the same renderer build.
 
-Enable with:
+Enable:
 
 ```text
 MOBILEGLUES_PZ_WORLD_COMPILER=1
 MOBILEGLUES_PZ_CENSUS=1
 -Dzomdroid.renderer=MOBILEGLUES_EXPERIMENTAL
--javaagent:/storage/emulated/0/Download/PZRendererHook-v4-batch-grammar.jar
+-javaagent:/storage/emulated/0/Download/PZRendererHook-v5-depth-batch.jar
 ```
 
-Expected startup markers:
+Expected startup:
 
 ```text
-ZOMDROID_PZ_WORLD_COMPILER_V4 enabled=1 hook=installed version=4 census=world+grammar
-ZOMDROID_PZ_WORLD_COMPILER_V4 hook=transformed class=zombie.core.SpriteRenderer
-ZOMDROID_PZ_WORLD_COMPILER_V4 renderer=ready batch=... tex_units=...
+ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5 census=world+grammar+depth_batch
+ZOMDROID_PZ_WORLD_COMPILER_V5 hook=transformed class=zombie.core.SpriteRenderer
 ```
 
-Every 300 WORLD submissions:
+When a tile-depth shader clone succeeds:
 
 ```text
-ZOMDROID_PZ_WORLD_CENSUS_V4 ...
-ZOMDROID_PZ_WORLD_GRAMMAR_V4 frames=... tex1_draws=... shader0=... shaderN=... top=PREV>NEXT@S0|SN:count,...
-ZOMDROID_PZ_WORLD_COMPILER_V4 ... source_draws=... backend_draws=... eliminated=...
+ZOMDROID_PZ_DEPTH_BATCH_V5 renderer=ready shader=... pairs=8
 ```
 
-`top=` is a compact histogram over all observed eligible `tex1` draws. It records the exact immediate
-neighbor command pair and whether shader 0 (`S0`) or a non-zero shader (`SN`) was active at the draw.
+Every 300 WORLD submissions the compiler line includes both the old cached-chunk telemetry and:
+
+```text
+depth_eligible=... depth_planned=... depth_groups=... depth_src=... depth_backend=...
+depth_eliminated=... depth_max_batch=... depth_prewarm=... depth_shader_fail=... depth_redundant_mask=...
+```
+
+`depth_eliminated` is actual source-draw -> V5 backend-draw reduction for compiled V5 groups, not a census estimate.

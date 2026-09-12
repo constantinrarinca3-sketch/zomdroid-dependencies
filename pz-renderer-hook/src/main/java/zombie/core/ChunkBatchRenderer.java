@@ -29,18 +29,18 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
     private static final int GL_TRIANGLES = 0x0004;
     private static final int FLOATS_PER_INSTANCE = 18;
     private static final int STRIDE = FLOATS_PER_INSTANCE * Float.BYTES;
-    private static final int MAX_PAIRS = 16;
+    private static final int MAX_PAIRS = 8;
 
     private static volatile State state = State.COLD;
     private static int program;
     private static int vao;
     private static int vbo;
     private static int mvpLocation;
-    private static int batchSize = 8;
+    private static int batchSize = MAX_PAIRS;
     private static int textureUnits;
     private static final int[] colorLocations = new int[MAX_PAIRS];
     private static final int[] depthLocations = new int[MAX_PAIRS];
-    private static float[] upload = new float[8 * FLOATS_PER_INSTANCE];
+    private static float[] upload = new float[MAX_PAIRS * FLOATS_PER_INSTANCE];
     private static final float[] matrix = new float[16];
     private static final Matrix4f mvp = new Matrix4f();
 
@@ -166,7 +166,7 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
             attribute(3, 4, 48L);
             attribute(4, 2, 64L);
             state = State.READY;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 renderer=ready batch=" + batchSize
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 renderer=ready batch=" + batchSize
                     + " tex_units=" + textureUnits);
         } catch (Throwable failure) {
             state = State.FAILED;

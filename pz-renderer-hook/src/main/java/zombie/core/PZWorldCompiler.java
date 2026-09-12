@@ -26,6 +26,15 @@ public final class PZWorldCompiler {
     private static long rejectDraw;
     private static long rejectStyle;
     private static int maxBatch;
+    private static long depthEligibleDraws;
+    private static long depthPlannedDraws;
+    private static long depthCompiledGroups;
+    private static long depthSourceDraws;
+    private static long depthBackendDraws;
+    private static long depthPrewarms;
+    private static long depthRendererFailures;
+    private static long depthRedundantMasks;
+    private static int depthMaxBatch;
 
     private PZWorldCompiler() {}
 
@@ -37,33 +46,43 @@ public final class PZWorldCompiler {
         Style[] styles = state.style;
         int count = state.numSprites;
 
-        final List<Block> candidates;
+        final List<Block> chunkCandidates;
+        final DepthBatchPlanner.Plan depthPlan;
         try {
-            candidates = findBlocks(draws, styles, count);
+            chunkCandidates = findBlocks(draws, styles, count);
+            depthPlan = DepthBatchPlanner.plan(draws, styles, count, DepthBatchRenderer::shaderAllowed);
         } catch (Throwable failure) {
             disabled = true;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 disabled=1 stage=validate reason=" + failure);
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 disabled=1 stage=validate reason=" + failure);
             return false;
         }
-        if (candidates.isEmpty()) {
+        depthEligibleDraws += depthPlan.eligibleDraws();
+        depthPlannedDraws += depthPlan.plannedDraws();
+        depthRedundantMasks += depthPlan.redundantDepthMasks();
+
+        boolean chunkReady = !chunkCandidates.isEmpty() && ChunkBatchRenderer.isReady();
+        boolean chunkPrewarm = !chunkCandidates.isEmpty() && !ChunkBatchRenderer.isReady();
+        boolean anyDepthReady = false;
+        boolean anyDepthPrewarm = false;
+        for (DepthBatchPlanner.Group group : depthPlan.groups()) {
+            if (DepthBatchRenderer.isReady(group.shaderId())) anyDepthReady = true;
+            else if (!DepthBatchRenderer.isFailed(group.shaderId()) && DepthBatchRenderer.needsPrewarm(group.shaderId())) anyDepthPrewarm = true;
+        }
+
+        if (!chunkReady && !chunkPrewarm && !anyDepthReady && !anyDepthPrewarm) {
             reportFrame();
             return false;
         }
 
         try {
             SpriteRenderer.ringBuffer.begin();
-            if (!ChunkBatchRenderer.isReady()) {
-                replayWithPrewarm(draws, styles, count, candidates.get(0).start);
-                prewarms++;
-            } else {
-                replayCompiled(draws, styles, count, candidates);
-            }
+            replayMixed(draws, styles, count, chunkCandidates, depthPlan.groups(), chunkReady, chunkPrewarm);
             SpriteRenderer.ringBuffer.render();
             reportFrame();
             return true;
         } catch (Throwable failure) {
             disabled = true;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 disabled=1 stage=emit reason=" + failure);
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 disabled=1 stage=emit reason=" + failure);
             return true;
         }
     }
@@ -191,56 +210,95 @@ public final class PZWorldCompiler {
         else rejectCommand++;
     }
 
-    private static void replayWithPrewarm(TextureDraw[] draws, Style[] styles, int count, int before) {
+    private static void replayMixed(TextureDraw[] draws, Style[] styles, int count,
+                                    List<Block> chunks, List<DepthBatchPlanner.Group> depthGroups,
+                                    boolean chunkReady, boolean chunkPrewarm) {
         TextureDraw previous = null;
         int limit = Math.min(count, Math.min(draws.length, styles.length));
+        int chunkIndex = 0;
+        int depthIndex = 0;
+        Block chunk = chunks.isEmpty() ? null : chunks.get(0);
+        DepthBatchPlanner.Group depth = depthGroups.isEmpty() ? null : depthGroups.get(0);
+        boolean chunkWarmInserted = false;
+        java.util.HashSet<Integer> depthWarmInserted = new java.util.HashSet<>();
+
         for (int i = 0; i < limit; i++) {
-            if (i == before) {
-                TextureDraw warmup = new TextureDraw();
-                warmup.type = Type.DrawModel;
-                warmup.drawer = new ChunkBatchRenderer.PrewarmDrawer();
-                SpriteRenderer.ringBuffer.add(warmup, previous, nonNullStyle(styles, i, limit));
-                previous = warmup;
+            if (chunkPrewarm && !chunkWarmInserted && chunk != null && i == chunk.start) {
+                TextureDraw warm = generic(new ChunkBatchRenderer.PrewarmDrawer());
+                SpriteRenderer.ringBuffer.add(warm, previous, nonNullStyle(styles, i, limit));
+                previous = warm;
+                chunkWarmInserted = true;
+                prewarms++;
             }
+            while (depth != null && depth.end() < i) {
+                depthIndex++;
+                depth = depthIndex < depthGroups.size() ? depthGroups.get(depthIndex) : null;
+            }
+            if (depth != null && i == depth.start()
+                    && !DepthBatchRenderer.isReady(depth.shaderId())
+                    && !DepthBatchRenderer.isFailed(depth.shaderId())
+                    && depthWarmInserted.add(depth.shaderId())) {
+                DepthBatchPlanner.DepthDraw sample = depth.draws().get(0);
+                TextureDraw warm = generic(new DepthBatchRenderer.PrewarmDrawer(depth.shaderId(), sample.params()));
+                SpriteRenderer.ringBuffer.add(warm, previous, nonNullStyle(styles, i, limit));
+                previous = warm;
+                depthPrewarms++;
+            }
+
+            if (chunk != null && i == chunk.start && chunkReady) {
+                TextureDraw begin = draws[i];
+                SpriteRenderer.ringBuffer.add(begin, previous, styles[i]);
+                previous = begin;
+                TextureDraw compiled = generic(new ChunkBatchRenderer(chunk.chunks));
+                SpriteRenderer.ringBuffer.add(compiled, previous, chunk.style);
+                previous = compiled;
+                TextureDraw finish = draws[chunk.end];
+                SpriteRenderer.ringBuffer.add(finish, previous, styles[chunk.end]);
+                previous = finish;
+
+                int emitted = (chunk.chunks.size() + ChunkBatchRenderer.batchSize() - 1) / ChunkBatchRenderer.batchSize();
+                compiledBlocks++;
+                sourceDraws += chunk.chunks.size();
+                backendDraws += emitted;
+                maxBatch = Math.max(maxBatch, Math.min(chunk.chunks.size(), ChunkBatchRenderer.batchSize()));
+                i = chunk.end;
+                chunkIndex++;
+                chunk = chunkIndex < chunks.size() ? chunks.get(chunkIndex) : null;
+                continue;
+            }
+
+            if (depth != null && i == depth.start() && DepthBatchRenderer.isReady(depth.shaderId())) {
+                TextureDraw compiled = generic(new DepthBatchRenderer(depth));
+                SpriteRenderer.ringBuffer.add(compiled, previous, depth.style());
+                previous = compiled;
+
+                // Restore the exact original PZ shader/uniform state that would exist after
+                // the final source draw, so following commands observe unchanged semantics.
+                TextureDraw restoreShader = draws[depth.lastStartShaderIndex()];
+                SpriteRenderer.ringBuffer.add(restoreShader, previous, styles[depth.lastStartShaderIndex()]);
+                previous = restoreShader;
+
+                int emitted = DepthBatchRenderer.estimateGroupBatches(depth);
+                depthCompiledGroups++;
+                depthSourceDraws += depth.sourceDraws();
+                depthBackendDraws += emitted;
+                depthMaxBatch = Math.max(depthMaxBatch, DepthBatchRenderer.maxBatchDraws(depth));
+                i = depth.end();
+                depthIndex++;
+                depth = depthIndex < depthGroups.size() ? depthGroups.get(depthIndex) : null;
+                continue;
+            }
+
             SpriteRenderer.ringBuffer.add(draws[i], previous, styles[i]);
             previous = draws[i];
         }
     }
 
-    private static void replayCompiled(TextureDraw[] draws, Style[] styles, int count, List<Block> candidates) {
-        TextureDraw previous = null;
-        int limit = Math.min(count, Math.min(draws.length, styles.length));
-        int blockIndex = 0;
-        Block block = candidates.get(0);
-        for (int i = 0; i < limit; i++) {
-            if (block != null && i == block.start) {
-                TextureDraw begin = draws[i];
-                SpriteRenderer.ringBuffer.add(begin, previous, styles[i]);
-                previous = begin;
-
-                TextureDraw compiled = new TextureDraw();
-                compiled.type = Type.DrawModel;
-                compiled.drawer = new ChunkBatchRenderer(block.chunks);
-                SpriteRenderer.ringBuffer.add(compiled, previous, block.style);
-                previous = compiled;
-
-                TextureDraw finish = draws[block.end];
-                SpriteRenderer.ringBuffer.add(finish, previous, styles[block.end]);
-                previous = finish;
-
-                int emitted = (block.chunks.size() + ChunkBatchRenderer.batchSize() - 1) / ChunkBatchRenderer.batchSize();
-                compiledBlocks++;
-                sourceDraws += block.chunks.size();
-                backendDraws += emitted;
-                maxBatch = Math.max(maxBatch, Math.min(block.chunks.size(), ChunkBatchRenderer.batchSize()));
-                i = block.end;
-                blockIndex++;
-                block = blockIndex < candidates.size() ? candidates.get(blockIndex) : null;
-                continue;
-            }
-            SpriteRenderer.ringBuffer.add(draws[i], previous, styles[i]);
-            previous = draws[i];
-        }
+    private static TextureDraw generic(TextureDraw.GenericDrawer drawer) {
+        TextureDraw draw = new TextureDraw();
+        draw.type = Type.DrawModel;
+        draw.drawer = drawer;
+        return draw;
     }
 
     private static Style nonNullStyle(Style[] styles, int at, int limit) {
@@ -252,14 +310,19 @@ public final class PZWorldCompiler {
 
     static void rendererFailed(Throwable failure) {
         disabled = true;
-        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 disabled=1 stage=renderer reason=" + failure);
+        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 disabled=1 stage=chunk_renderer reason=" + failure);
+    }
+
+    static void depthRendererFailed(int shaderId, Throwable failure) {
+        depthRendererFailures++;
+        System.out.println("ZOMDROID_PZ_DEPTH_BATCH_V5 renderer=failed shader=" + shaderId + " reason=" + failure);
     }
 
     private static void reportFrame() {
         frames++;
         if (!CENSUS || frames % REPORT_EVERY != 0) return;
         long eliminated = sourceDraws - backendDraws;
-        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 frames=" + frames
+        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 frames=" + frames
                 + " normal_intervals=" + normalIntervals
                 + " compiled_blocks=" + compiledBlocks
                 + " source_draws=" + sourceDraws
@@ -272,7 +335,17 @@ public final class PZWorldCompiler {
                 + " reject_no_draw=" + rejectNoDraw
                 + " reject_command=" + rejectCommand
                 + " reject_draw=" + rejectDraw
-                + " reject_style=" + rejectStyle);
+                + " reject_style=" + rejectStyle
+                + " depth_eligible=" + depthEligibleDraws
+                + " depth_planned=" + depthPlannedDraws
+                + " depth_groups=" + depthCompiledGroups
+                + " depth_src=" + depthSourceDraws
+                + " depth_backend=" + depthBackendDraws
+                + " depth_eliminated=" + (depthSourceDraws - depthBackendDraws)
+                + " depth_max_batch=" + depthMaxBatch
+                + " depth_prewarm=" + depthPrewarms
+                + " depth_shader_fail=" + depthRendererFailures
+                + " depth_redundant_mask=" + depthRedundantMasks);
     }
 
     static final class ChunkDraw {

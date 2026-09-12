@@ -25,7 +25,7 @@ public final class WorldCommandGrammar {
         scan(state.sprite, state.style, state.numSprites, TOTAL);
         frames++;
         if (frames % REPORT_EVERY == 0) {
-            System.out.println("ZOMDROID_PZ_WORLD_GRAMMAR_V4 frames=" + frames
+            System.out.println("ZOMDROID_PZ_WORLD_GRAMMAR_V5 frames=" + frames
                     + " tex1_draws=" + TOTAL.tex1Draws
                     + " shader0=" + TOTAL.shaderZero
                     + " shaderN=" + TOTAL.shaderNonZero
