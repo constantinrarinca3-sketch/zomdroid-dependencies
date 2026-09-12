@@ -11,8 +11,10 @@ public final class WorldPassAdvice {
 
     @Advice.OnMethodEnter(skipOn = Advice.OnNonDefaultValue.class)
     public static boolean enter(@Advice.Argument(0) SpriteRenderState state) {
-        WorldDrawCensus.observe(state);
-        WorldCommandGrammar.observe(state);
+        if (WorldDrawCensus.enabled()) {
+            WorldDrawCensus.observe(state);
+            WorldCommandGrammar.observe(state);
+        }
         return PZWorldCompiler.compileWorldState(state);
     }
 }

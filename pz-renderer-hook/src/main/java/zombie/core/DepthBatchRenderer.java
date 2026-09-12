@@ -196,7 +196,8 @@ final class DepthBatchRenderer extends TextureDraw.GenericDrawer {
                 attrib(4, 2, GL_FLOAT, false, 28L); attrib(5, 1, GL_FLOAT, false, 36L);
                 attrib(6, 4, GL_FLOAT, false, 40L);
                 state = State.READY;
-                System.out.println("ZOMDROID_PZ_DEPTH_BATCH_V5 renderer=ready shader=" + sourceProgram + " pairs=" + MAX_PAIRS);
+                if (PZWorldCompiler.censusEnabled())
+                    System.out.println("ZOMDROID_PZ_DEPTH_BATCH_V5 renderer=ready shader=" + sourceProgram + " pairs=" + MAX_PAIRS);
             } catch (Throwable failure) {
                 state = State.FAILED;
                 PZWorldCompiler.depthRendererFailed(sourceProgram, failure);

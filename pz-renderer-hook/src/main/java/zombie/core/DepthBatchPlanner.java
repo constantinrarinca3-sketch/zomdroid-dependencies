@@ -24,6 +24,11 @@ public final class DepthBatchPlanner {
     }
 
     public static Plan plan(TextureDraw[] draws, Style[] styles, int count, IntPredicate shaderAllowed) {
+        return plan(draws, styles, count, shaderAllowed, true);
+    }
+
+    static Plan plan(TextureDraw[] draws, Style[] styles, int count, IntPredicate shaderAllowed,
+                     boolean collectStats) {
         if (draws == null || styles == null || shaderAllowed == null || count <= 0) {
             return new Plan(List.of(), 0, 0, 0, 0, 0, 0, 0);
         }
@@ -52,9 +57,10 @@ public final class DepthBatchPlanner {
                 if (current != null) {
                     if (redundant) {
                         current.end = i;
-                        redundantMasks++;
+                        if (collectStats) redundantMasks++;
                     } else {
-                        planned += flush(groups, current);
+                        long flushed = flush(groups, current);
+                        if (collectStats) planned += flushed;
                         current = null;
                     }
                 }
@@ -62,21 +68,26 @@ public final class DepthBatchPlanner {
             }
 
             PacketCheck packet = inspectPacket(draws, styles, i, limit, shaderAllowed);
-            if (packet.candidate) candidatePackets++;
-            if (packet.shaderRejected) shaderRejected++;
-            if (packet.paramsRejected) paramsRejected++;
-            if (packet.drawRejected) drawRejected++;
+            if (collectStats) {
+                if (packet.candidate) candidatePackets++;
+                if (packet.shaderRejected) shaderRejected++;
+                if (packet.paramsRejected) paramsRejected++;
+                if (packet.drawRejected) drawRejected++;
+            }
             if (packet.eligible()) {
                 TextureDraw start = command;
                 TextureDraw draw = draws[i + 1];
                 DepthUniformSnapshot params = packet.params;
-                eligible++;
+                if (collectStats) eligible++;
                 if (current == null
                         || current.shaderId != start.a
                         || current.depthMaskKnown != depthMaskKnown
                         || (depthMaskKnown && current.depthMask != depthMask)
                         || current.draws.size() >= MAX_DRAWS) {
-                    if (current != null) planned += flush(groups, current);
+                    if (current != null) {
+                        long flushed = flush(groups, current);
+                        if (collectStats) planned += flushed;
+                    }
                     current = new Builder(i, start.a, depthMaskKnown, depthMask, styles[i + 1]);
                 }
                 current.add(i, i + 1, start, draw, params);
@@ -85,11 +96,15 @@ public final class DepthBatchPlanner {
             }
 
             if (current != null) {
-                planned += flush(groups, current);
+                long flushed = flush(groups, current);
+                if (collectStats) planned += flushed;
                 current = null;
             }
         }
-        if (current != null) planned += flush(groups, current);
+        if (current != null) {
+            long flushed = flush(groups, current);
+            if (collectStats) planned += flushed;
+        }
         return new Plan(Collections.unmodifiableList(groups), eligible, planned, redundantMasks,
                 candidatePackets, shaderRejected, paramsRejected, drawRejected);
     }
@@ -117,9 +132,12 @@ public final class DepthBatchPlanner {
     private record PacketCheck(boolean candidate, boolean shaderRejected, boolean paramsRejected,
                                boolean drawRejected, DepthUniformSnapshot params) {
         static final PacketCheck NONE = new PacketCheck(false, false, false, false, null);
-        static PacketCheck rejectShader() { return new PacketCheck(true, true, false, false, null); }
-        static PacketCheck rejectParams() { return new PacketCheck(true, false, true, false, null); }
-        static PacketCheck rejectDraw() { return new PacketCheck(true, false, false, true, null); }
+        static final PacketCheck SHADER_REJECT = new PacketCheck(true, true, false, false, null);
+        static final PacketCheck PARAMS_REJECT = new PacketCheck(true, false, true, false, null);
+        static final PacketCheck DRAW_REJECT = new PacketCheck(true, false, false, true, null);
+        static PacketCheck rejectShader() { return SHADER_REJECT; }
+        static PacketCheck rejectParams() { return PARAMS_REJECT; }
+        static PacketCheck rejectDraw() { return DRAW_REJECT; }
         static PacketCheck eligible(DepthUniformSnapshot params) { return new PacketCheck(true, false, false, false, params); }
         boolean eligible() { return params != null && !shaderRejected && !paramsRejected && !drawRejected; }
     }

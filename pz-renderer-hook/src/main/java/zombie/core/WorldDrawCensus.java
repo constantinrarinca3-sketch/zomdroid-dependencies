@@ -36,6 +36,8 @@ public final class WorldDrawCensus {
 
     private WorldDrawCensus() {}
 
+    public static boolean enabled() { return CENSUS; }
+
     public static void observe(SpriteRenderState state) {
         if (!CENSUS || state == null || state.sprite == null || state.style == null || state.numSprites <= 0) {
             return;

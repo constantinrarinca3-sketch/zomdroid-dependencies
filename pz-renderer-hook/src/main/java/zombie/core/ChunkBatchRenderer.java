@@ -166,8 +166,9 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
             attribute(3, 4, 48L);
             attribute(4, 2, 64L);
             state = State.READY;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 renderer=ready batch=" + batchSize
-                    + " tex_units=" + textureUnits);
+            if (PZWorldCompiler.censusEnabled())
+                System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 renderer=ready batch=" + batchSize
+                        + " tex_units=" + textureUnits);
         } catch (Throwable failure) {
             state = State.FAILED;
             PZWorldCompiler.rendererFailed(failure);

@@ -42,6 +42,8 @@ public final class PZWorldCompiler {
 
     private PZWorldCompiler() {}
 
+    static boolean censusEnabled() { return CENSUS; }
+
     public static boolean compileWorldState(SpriteRenderState state) {
         if (disabled || state == null || state.sprite == null || state.style == null || state.numSprites <= 0) {
             return false;
@@ -54,19 +56,21 @@ public final class PZWorldCompiler {
         final DepthBatchPlanner.Plan depthPlan;
         try {
             chunkCandidates = findBlocks(draws, styles, count);
-            depthPlan = DepthBatchPlanner.plan(draws, styles, count, DepthBatchRenderer::shaderAllowed);
+            depthPlan = DepthBatchPlanner.plan(draws, styles, count, DepthBatchRenderer::shaderAllowed, CENSUS);
         } catch (Throwable failure) {
             disabled = true;
             System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 disabled=1 stage=validate reason=" + failure);
             return false;
         }
-        depthEligibleDraws += depthPlan.eligibleDraws();
-        depthCandidatePackets += depthPlan.candidatePackets();
-        depthShaderGateRejects += depthPlan.shaderRejected();
-        depthParamsRejects += depthPlan.paramsRejected();
-        depthDrawRejects += depthPlan.drawRejected();
-        depthPlannedDraws += depthPlan.plannedDraws();
-        depthRedundantMasks += depthPlan.redundantDepthMasks();
+        if (CENSUS) {
+            depthEligibleDraws += depthPlan.eligibleDraws();
+            depthCandidatePackets += depthPlan.candidatePackets();
+            depthShaderGateRejects += depthPlan.shaderRejected();
+            depthParamsRejects += depthPlan.paramsRejected();
+            depthDrawRejects += depthPlan.drawRejected();
+            depthPlannedDraws += depthPlan.plannedDraws();
+            depthRedundantMasks += depthPlan.redundantDepthMasks();
+        }
 
         boolean chunkReady = !chunkCandidates.isEmpty() && ChunkBatchRenderer.isReady();
         boolean chunkPrewarm = !chunkCandidates.isEmpty() && !ChunkBatchRenderer.isReady();
@@ -101,19 +105,21 @@ public final class PZWorldCompiler {
         for (int i = 0; i < limit; i++) {
             TextureDraw draw = draws[i];
             if (draw == null || draw.type != Type.glDoStartFrameNoZoom) continue;
-            normalIntervals++;
+            if (CENSUS) normalIntervals++;
             int end = i + 1;
             while (end < limit && (draws[end] == null || draws[end].type != Type.glDoEndFrame)) end++;
             if (end >= limit) {
-                fallbacks++;
-                rejectCommand++;
+                if (CENSUS) {
+                    fallbacks++;
+                    rejectCommand++;
+                }
                 break;
             }
             Validation validation = validateBlock(draws, styles, i, end, limit);
             if (validation.block != null) {
                 result.add(validation.block);
             } else {
-                fallbacks++;
+                if (CENSUS) fallbacks++;
                 countReject(validation.reject);
             }
             i = end;
@@ -212,6 +218,7 @@ public final class PZWorldCompiler {
     }
 
     private static void countReject(Reject reject) {
+        if (!CENSUS) return;
         if (reject == Reject.NO_DRAW) rejectNoDraw++;
         else if (reject == Reject.DRAW) rejectDraw++;
         else if (reject == Reject.STYLE) rejectStyle++;
@@ -236,7 +243,7 @@ public final class PZWorldCompiler {
                 SpriteRenderer.ringBuffer.add(warm, previous, nonNullStyle(styles, i, limit));
                 previous = warm;
                 chunkWarmInserted = true;
-                prewarms++;
+                if (CENSUS) prewarms++;
             }
             while (depth != null && depth.end() < i) {
                 depthIndex++;
@@ -250,7 +257,7 @@ public final class PZWorldCompiler {
                 TextureDraw warm = generic(new DepthBatchRenderer.PrewarmDrawer(depth.shaderId(), sample.params()));
                 SpriteRenderer.ringBuffer.add(warm, previous, nonNullStyle(styles, i, limit));
                 previous = warm;
-                depthPrewarms++;
+                if (CENSUS) depthPrewarms++;
             }
 
             if (chunk != null && i == chunk.start && chunkReady) {
@@ -264,11 +271,14 @@ public final class PZWorldCompiler {
                 SpriteRenderer.ringBuffer.add(finish, previous, styles[chunk.end]);
                 previous = finish;
 
-                int emitted = (chunk.chunks.size() + ChunkBatchRenderer.batchSize() - 1) / ChunkBatchRenderer.batchSize();
-                compiledBlocks++;
-                sourceDraws += chunk.chunks.size();
-                backendDraws += emitted;
-                maxBatch = Math.max(maxBatch, Math.min(chunk.chunks.size(), ChunkBatchRenderer.batchSize()));
+                if (CENSUS) {
+                    int emitted = (chunk.chunks.size() + ChunkBatchRenderer.batchSize() - 1)
+                            / ChunkBatchRenderer.batchSize();
+                    compiledBlocks++;
+                    sourceDraws += chunk.chunks.size();
+                    backendDraws += emitted;
+                    maxBatch = Math.max(maxBatch, Math.min(chunk.chunks.size(), ChunkBatchRenderer.batchSize()));
+                }
                 i = chunk.end;
                 chunkIndex++;
                 chunk = chunkIndex < chunks.size() ? chunks.get(chunkIndex) : null;
@@ -286,11 +296,13 @@ public final class PZWorldCompiler {
                 SpriteRenderer.ringBuffer.add(restoreShader, previous, styles[depth.lastStartShaderIndex()]);
                 previous = restoreShader;
 
-                int emitted = DepthBatchRenderer.estimateGroupBatches(depth);
-                depthCompiledGroups++;
-                depthSourceDraws += depth.sourceDraws();
-                depthBackendDraws += emitted;
-                depthMaxBatch = Math.max(depthMaxBatch, DepthBatchRenderer.maxBatchDraws(depth));
+                if (CENSUS) {
+                    int emitted = DepthBatchRenderer.estimateGroupBatches(depth);
+                    depthCompiledGroups++;
+                    depthSourceDraws += depth.sourceDraws();
+                    depthBackendDraws += emitted;
+                    depthMaxBatch = Math.max(depthMaxBatch, DepthBatchRenderer.maxBatchDraws(depth));
+                }
                 i = depth.end();
                 depthIndex++;
                 depth = depthIndex < depthGroups.size() ? depthGroups.get(depthIndex) : null;
@@ -322,13 +334,14 @@ public final class PZWorldCompiler {
     }
 
     static void depthRendererFailed(int shaderId, Throwable failure) {
-        depthRendererFailures++;
+        if (CENSUS) depthRendererFailures++;
         System.out.println("ZOMDROID_PZ_DEPTH_BATCH_V5 renderer=failed shader=" + shaderId + " reason=" + failure);
     }
 
     private static void reportFrame() {
+        if (!CENSUS) return;
         frames++;
-        if (!CENSUS || frames % REPORT_EVERY != 0) return;
+        if (frames % REPORT_EVERY != 0) return;
         long eliminated = sourceDraws - backendDraws;
         System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 frames=" + frames
                 + " normal_intervals=" + normalIntervals

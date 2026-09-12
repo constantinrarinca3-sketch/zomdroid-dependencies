@@ -59,7 +59,9 @@ public final class PZRendererAgent {
                             builder.visit(Advice.to(WorldPassAdvice.class)
                                     .on(ElementMatchers.named("buildStateDrawBuffer"))))
                     .installOn(instrumentation);
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.3 census=world+grammar+depth_batch");
+            boolean census = "1".equals(System.getenv("MOBILEGLUES_PZ_CENSUS"));
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.3-stable census="
+                    + (census ? "1" : "0"));
         } catch (Throwable failure) {
             System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=0 hook=error reason=" + failure);
         }
