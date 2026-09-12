@@ -7,10 +7,10 @@ import java.util.regex.Pattern;
 public final class TileDepthShaderTransformer {
     private static final Pattern DIFFUSE_DECL = Pattern.compile("(?m)^\\s*uniform\\s+sampler2D\\s+DIFFUSE\\s*;\\s*$");
     private static final Pattern DEPTH_DECL = Pattern.compile("(?m)^\\s*uniform\\s+sampler2D\\s+DEPTH\\s*;\\s*$");
-    private static final Pattern Z_DECL = Pattern.compile("(?m)^\\s*uniform\\s+float\\s+zDepth\\s*;\\s*$");
-    private static final Pattern PIX_DECL = Pattern.compile("(?m)^\\s*uniform\\s+int\\s+drawPixels\\s*;\\s*$");
-    private static final Pattern BLEND_Z_DECL = Pattern.compile("(?m)^\\s*uniform\\s+float\\s+zDepthBlendZ\\s*;\\s*$");
-    private static final Pattern BLEND_TO_DECL = Pattern.compile("(?m)^\\s*uniform\\s+float\\s+zDepthBlendToZ\\s*;\\s*$");
+    private static final Pattern Z_DECL = uniform("float", "zDepth");
+    private static final Pattern PIX_DECL = uniform("int", "drawPixels");
+    private static final Pattern BLEND_Z_DECL = uniform("float", "zDepthBlendZ");
+    private static final Pattern BLEND_TO_DECL = uniform("float", "zDepthBlendToZ");
     private static final Pattern DIFFUSE_TOKEN = Pattern.compile("\\bDIFFUSE\\b");
     private static final Pattern DEPTH_TOKEN = Pattern.compile("\\bDEPTH\\b");
 
@@ -20,11 +20,11 @@ public final class TileDepthShaderTransformer {
         if (vertex == null || fragment == null || pairs < 1 || pairs > 8) return null;
         boolean legacyVertex = legacy(vertex);
         boolean legacyFragment = legacy(fragment);
-        if (legacyVertex != legacyFragment || !vertex.contains("void main") || !fragment.contains("void main")) return null;
+        if (!vertex.contains("void main") || !fragment.contains("void main")) return null;
 
         Matcher diffuse = DIFFUSE_DECL.matcher(fragment);
         Matcher depth = DEPTH_DECL.matcher(fragment);
-        Matcher z = Z_DECL.matcher(fragment);
+        Matcher z = Z_DECL.matcher(vertex);
         Matcher pix = PIX_DECL.matcher(fragment);
         Matcher bz = BLEND_Z_DECL.matcher(fragment);
         Matcher bto = BLEND_TO_DECL.matcher(fragment);
@@ -94,6 +94,11 @@ public final class TileDepthShaderTransformer {
         return source.contains("#version 110") || source.contains("#version 120");
     }
 
+    private static Pattern uniform(String type, String name) {
+        return Pattern.compile("(?m)^\\s*uniform\\s+" + type + "\\s+" + name
+                + "(?:\\s*=\\s*[^;]+)?\\s*;\\s*$");
+    }
+
     private static String injectAfterVersion(String source, String code) {
         int lineEnd = source.indexOf('\n');
         if (source.startsWith("#version") && lineEnd >= 0) {
@@ -141,8 +146,15 @@ public final class TileDepthShaderTransformer {
                 cursor = close + 1;
                 continue;
             }
-            if (topLevelComma(source, comma + 1, close) >= 0) return null;
-            String second = source.substring(comma + 1, close).trim();
+            int optionalBias = topLevelComma(source, comma + 1, close);
+            String second = source.substring(comma + 1, optionalBias < 0 ? close : optionalBias).trim();
+            if (optionalBias >= 0) {
+                String bias = source.substring(optionalBias + 1, close).trim();
+                // PZ's B42 tile shaders use the legacy texture2D bias overload with
+                // an exact zero bias. Dropping that zero preserves the lookup while
+                // keeping the generated sampler-bank helper portable.
+                if (!("0".equals(bias) || "0.0".equals(bias))) return null;
+            }
             out.append(source, cursor, pos).append(helper).append('(').append(second).append(')');
             cursor = close + 1;
         }

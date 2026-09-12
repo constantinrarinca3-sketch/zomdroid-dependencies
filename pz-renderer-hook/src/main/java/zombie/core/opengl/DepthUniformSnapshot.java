@@ -34,13 +34,19 @@ public final class DepthUniformSnapshot {
         ShaderUniformSetter d = c == null ? null : c.next;
         if (b == null || c == null || d == null || d.next != null) return null;
         if (a.type != ShaderUniformSetter.Type.Uniform1f
-                || b.type != ShaderUniformSetter.Type.Uniform1i
+                || (b.type != ShaderUniformSetter.Type.Uniform1i
+                    && b.type != ShaderUniformSetter.Type.NIL)
                 || c.type != ShaderUniformSetter.Type.Uniform1f
                 || d.type != ShaderUniformSetter.Type.Uniform1f) {
             return null;
         }
         if (!Float.isFinite(a.f1) || !Float.isFinite(c.f1) || !Float.isFinite(d.f1)) return null;
-        return new DepthUniformSnapshot(a.location, a.f1, b.location, b.i1,
+        // B42.20.3 declares drawPixels but no longer reads it (glColorMask is used
+        // instead), so the driver legitimately optimizes that uniform out. PZ then
+        // records a NIL setter in the otherwise exact four-node depth chain.
+        int drawPixelsLocation = b.type == ShaderUniformSetter.Type.NIL ? -1 : b.location;
+        int drawPixels = b.type == ShaderUniformSetter.Type.NIL ? 0 : b.i1;
+        return new DepthUniformSnapshot(a.location, a.f1, drawPixelsLocation, drawPixels,
                 c.location, c.f1, d.location, d.f1);
     }
 

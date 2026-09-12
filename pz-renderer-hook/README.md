@@ -1,4 +1,4 @@
-# PZRendererHook V5 depth batch (experimental)
+# PZRendererHook V5.2 depth batch (experimental)
 
 V5 keeps the WORLD-only `SpriteRenderer.buildStateDrawBuffer` hook, the validated V2 cached-chunk compiler,
 and the V4 passive world/grammar census.  It adds an actual batching path for the dominant B42.20.3
@@ -20,6 +20,10 @@ Safety rules:
 
 The passive V5 grammar/census remains enabled with `MOBILEGLUES_PZ_CENSUS=1` in the same renderer build.
 
+V5.2 accepts PZ's `NIL` placeholder for the optimized-out `drawPixels` uniform and transforms the
+actual B42.20.3 mixed-version shader pair (`#version 330` vertex / `#version 120` fragment), including
+its zero-bias `texture2D` call. Shader-family validation remains restricted to `TileDepthShader`.
+
 Enable:
 
 ```text
@@ -32,7 +36,7 @@ MOBILEGLUES_PZ_CENSUS=1
 Expected startup:
 
 ```text
-ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5 census=world+grammar+depth_batch
+ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.2 census=world+grammar+depth_batch
 ZOMDROID_PZ_WORLD_COMPILER_V5 hook=transformed class=zombie.core.SpriteRenderer
 ```
 

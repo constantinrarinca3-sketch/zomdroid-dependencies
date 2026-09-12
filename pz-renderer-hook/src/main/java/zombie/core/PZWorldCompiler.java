@@ -54,7 +54,7 @@ public final class PZWorldCompiler {
         final DepthBatchPlanner.Plan depthPlan;
         try {
             chunkCandidates = findBlocks(draws, styles, count);
-            depthPlan = DepthBatchPlanner.plan(draws, styles, count);
+            depthPlan = DepthBatchPlanner.plan(draws, styles, count, DepthBatchRenderer::shaderAllowed);
         } catch (Throwable failure) {
             disabled = true;
             System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 disabled=1 stage=validate reason=" + failure);
