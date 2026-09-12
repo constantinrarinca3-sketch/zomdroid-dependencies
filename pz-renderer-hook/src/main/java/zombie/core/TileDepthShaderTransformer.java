@@ -5,8 +5,12 @@ import java.util.regex.Pattern;
 
 /** Rewrites PZ's compiled tile-depth GLSL so per-draw values become per-vertex batch data. */
 public final class TileDepthShaderTransformer {
-    private static final Pattern DIFFUSE_DECL = Pattern.compile("(?m)^\\s*uniform\\s+sampler2D\\s+DIFFUSE\\s*;\\s*$");
-    private static final Pattern DEPTH_DECL = Pattern.compile("(?m)^\\s*uniform\\s+sampler2D\\s+DEPTH\\s*;\\s*$");
+    private static final String DECL_PREFIX = "\\s*(?:layout\\s*\\([^;\\r\\n]*\\)\\s*)?uniform\\s+"
+            + "(?:(?:lowp|mediump|highp)\\s+)?";
+    private static final Pattern DIFFUSE_DECL = Pattern.compile(
+            "(?m)^" + DECL_PREFIX + "sampler2D\\s+DIFFUSE(?:\\s*=\\s*[^;]+)?\\s*;\\s*$");
+    private static final Pattern DEPTH_DECL = Pattern.compile(
+            "(?m)^" + DECL_PREFIX + "sampler2D\\s+DEPTH(?:\\s*=\\s*[^;]+)?\\s*;\\s*$");
     private static final Pattern Z_DECL = uniform("float", "zDepth");
     private static final Pattern PIX_DECL = uniform("int", "drawPixels");
     private static final Pattern BLEND_Z_DECL = uniform("float", "zDepthBlendZ");
@@ -57,7 +61,7 @@ public final class TileDepthShaderTransformer {
         vertexBody = PIX_DECL.matcher(vertexBody).replaceAll("");
         vertexBody = BLEND_Z_DECL.matcher(vertexBody).replaceAll("");
         vertexBody = BLEND_TO_DECL.matcher(vertexBody).replaceAll("");
-        String v = injectAfterVersion(vertexBody, vertexDecl
+        String v = injectAfterPreamble(vertexBody, vertexDecl
                 + "#define zDepth (zd_Params.x)\n"
                 + "#define drawPixels (int(zd_Params.y + 0.5))\n"
                 + "#define zDepthBlendZ (zd_Params.z)\n"
@@ -86,7 +90,7 @@ public final class TileDepthShaderTransformer {
                     .append("(ZD_DEPTH").append(i).append(",uv);\n");
         }
         prelude.append(" return ").append(textureFunction).append("(ZD_DEPTH").append(pairs - 1).append(",uv); }\n");
-        f = injectAfterVersion(f, prelude.toString());
+        f = injectAfterPreamble(f, prelude.toString());
         return new Sources(v, f);
     }
 
@@ -95,16 +99,26 @@ public final class TileDepthShaderTransformer {
     }
 
     private static Pattern uniform(String type, String name) {
-        return Pattern.compile("(?m)^\\s*uniform\\s+" + type + "\\s+" + name
+        return Pattern.compile("(?m)^" + DECL_PREFIX + type + "\\s+" + name
                 + "(?:\\s*=\\s*[^;]+)?\\s*;\\s*$");
     }
 
-    private static String injectAfterVersion(String source, String code) {
-        int lineEnd = source.indexOf('\n');
-        if (source.startsWith("#version") && lineEnd >= 0) {
-            return source.substring(0, lineEnd + 1) + code + source.substring(lineEnd + 1);
+    private static String injectAfterPreamble(String source, String code) {
+        int cursor = 0;
+        boolean firstLine = true;
+        while (cursor < source.length()) {
+            int lineEnd = source.indexOf('\n', cursor);
+            int next = lineEnd < 0 ? source.length() : lineEnd + 1;
+            String line = source.substring(cursor, lineEnd < 0 ? source.length() : lineEnd).trim();
+            boolean preamble = (firstLine && line.startsWith("#version"))
+                    || line.isEmpty()
+                    || line.startsWith("#extension")
+                    || line.startsWith("precision ");
+            if (!preamble) break;
+            cursor = next;
+            firstLine = false;
         }
-        return code + source;
+        return source.substring(0, cursor) + code + source.substring(cursor);
     }
 
     private static String injectMain(String source, String code) {

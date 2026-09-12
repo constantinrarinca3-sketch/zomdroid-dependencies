@@ -3,7 +3,7 @@ set -euo pipefail
 
 PZ_JAR="${PZ_JAR:-/storage/emulated/0/projectzomboid42.20.3/projectzomboid.jar}"
 BUILD_DIR="${TMPDIR:-/tmp}/pz-renderer-hook-build"
-OUT_NAME="PZRendererHook-v5.2-depth-batch.jar"
+OUT_NAME="PZRendererHook-v5.3-depth-batch.jar"
 LOCAL_OUT="pz-renderer-hook/target/${OUT_NAME}"
 DEVICE_OUT="${PZ_RENDERER_INSTALL:-/storage/emulated/0/Download/${OUT_NAME}}"
 
