@@ -42,7 +42,7 @@ public final class PZWorldCompiler {
             candidates = findBlocks(draws, styles, count);
         } catch (Throwable failure) {
             disabled = true;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V2 disabled=1 stage=validate reason=" + failure);
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 disabled=1 stage=validate reason=" + failure);
             return false;
         }
         if (candidates.isEmpty()) {
@@ -63,7 +63,7 @@ public final class PZWorldCompiler {
             return true;
         } catch (Throwable failure) {
             disabled = true;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V2 disabled=1 stage=emit reason=" + failure);
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 disabled=1 stage=emit reason=" + failure);
             return true;
         }
     }
@@ -252,14 +252,14 @@ public final class PZWorldCompiler {
 
     static void rendererFailed(Throwable failure) {
         disabled = true;
-        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V2 disabled=1 stage=renderer reason=" + failure);
+        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 disabled=1 stage=renderer reason=" + failure);
     }
 
     private static void reportFrame() {
         frames++;
         if (!CENSUS || frames % REPORT_EVERY != 0) return;
         long eliminated = sourceDraws - backendDraws;
-        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V2 frames=" + frames
+        System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 frames=" + frames
                 + " normal_intervals=" + normalIntervals
                 + " compiled_blocks=" + compiledBlocks
                 + " source_draws=" + sourceDraws

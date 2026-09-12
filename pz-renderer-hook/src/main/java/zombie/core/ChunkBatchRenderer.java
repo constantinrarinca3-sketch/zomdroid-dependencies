@@ -15,12 +15,11 @@ import zombie.core.textures.TextureDraw;
 
 import java.util.List;
 
-/** Executes one instanced backend draw for up to eight existing color/depth texture pairs. */
+/** Executes one instanced backend draw for as many proven-safe chunk color/depth pairs as texture units allow. */
 final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
     private static final int GL_CURRENT_PROGRAM = 0x8B8D;
     private static final int GL_VERTEX_ARRAY_BINDING = 0x85B5;
     private static final int GL_ARRAY_BUFFER_BINDING = 0x8894;
-    private static final int GL_ACTIVE_TEXTURE = 0x84E0;
     private static final int GL_MAX_TEXTURE_IMAGE_UNITS = 0x8872;
     private static final int GL_TEXTURE0 = 0x84C0;
     private static final int GL_TEXTURE_2D = 0x0DE1;
@@ -30,17 +29,18 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
     private static final int GL_TRIANGLES = 0x0004;
     private static final int FLOATS_PER_INSTANCE = 18;
     private static final int STRIDE = FLOATS_PER_INSTANCE * Float.BYTES;
-    private static final int MAX_PAIRS = 8;
+    private static final int MAX_PAIRS = 16;
 
     private static volatile State state = State.COLD;
     private static int program;
     private static int vao;
     private static int vbo;
     private static int mvpLocation;
-    private static int batchSize = MAX_PAIRS;
+    private static int batchSize = 8;
+    private static int textureUnits;
     private static final int[] colorLocations = new int[MAX_PAIRS];
     private static final int[] depthLocations = new int[MAX_PAIRS];
-    private static final float[] upload = new float[MAX_PAIRS * FLOATS_PER_INSTANCE];
+    private static float[] upload = new float[8 * FLOATS_PER_INSTANCE];
     private static final float[] matrix = new float[16];
     private static final Matrix4f mvp = new Matrix4f();
 
@@ -56,6 +56,10 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
 
     static int batchSize() {
         return batchSize;
+    }
+
+    static int chooseBatchSize(int availableTextureUnits) {
+        return Math.min(MAX_PAIRS, Math.max(0, availableTextureUnits / 2));
     }
 
     @Override
@@ -82,7 +86,7 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
                     PZWorldCompiler.ChunkDraw chunk = chunks.get(first + slot);
                     GL13.glActiveTexture(GL_TEXTURE0 + slot);
                     chunk.color.bind();
-                    GL13.glActiveTexture(GL_TEXTURE0 + MAX_PAIRS + slot);
+                    GL13.glActiveTexture(GL_TEXTURE0 + batchSize + slot);
                     GL11.glBindTexture(GL_TEXTURE_2D, chunk.depth.getID());
                 }
                 GL31.glDrawArraysInstanced(GL_TRIANGLES, 0, 6, count);
@@ -92,9 +96,6 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
             PZWorldCompiler.rendererFailed(failure);
         } finally {
             try {
-                // The original chunk block ends on PZ's default program. Restore that known
-                // semantic state directly. GL queries here would drain threaded submission every
-                // frame and erase the gain from the reduced draws.
                 GL30.glBindVertexArray(0);
                 GL15.glBindBuffer(GL_ARRAY_BUFFER, 0);
                 ShaderHelper.forgetCurrentlyBound();
@@ -125,13 +126,15 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
         int previousVao = GL11.glGetInteger(GL_VERTEX_ARRAY_BINDING);
         int previousArrayBuffer = GL11.glGetInteger(GL_ARRAY_BUFFER_BINDING);
         try {
-            int textureUnits = GL11.glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
-            if (textureUnits < MAX_PAIRS * 2) {
-                throw new IllegalStateException("need 16 fragment texture units, got " + textureUnits);
+            textureUnits = GL11.glGetInteger(GL_MAX_TEXTURE_IMAGE_UNITS);
+            batchSize = chooseBatchSize(textureUnits);
+            if (batchSize < 2) {
+                throw new IllegalStateException("need at least 4 fragment texture units, got " + textureUnits);
             }
+            upload = new float[batchSize * FLOATS_PER_INSTANCE];
 
             int vertex = compileShader(0x8B31, vertexShader());
-            int fragment = compileShader(0x8B30, fragmentShader());
+            int fragment = compileShader(0x8B30, fragmentShader(batchSize));
             program = GL20.glCreateProgram();
             GL20.glAttachShader(program, vertex);
             GL20.glAttachShader(program, fragment);
@@ -145,25 +148,26 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
             GL20.glUseProgram(program);
             mvpLocation = GL20.glGetUniformLocation(program, "ModelViewProjection");
             if (mvpLocation < 0) throw new IllegalStateException("missing ModelViewProjection");
-            for (int i = 0; i < MAX_PAIRS; i++) {
+            for (int i = 0; i < batchSize; i++) {
                 colorLocations[i] = GL20.glGetUniformLocation(program, "uColor" + i);
                 depthLocations[i] = GL20.glGetUniformLocation(program, "uDepth" + i);
                 GL20.glUniform1i(colorLocations[i], i);
-                GL20.glUniform1i(depthLocations[i], MAX_PAIRS + i);
+                GL20.glUniform1i(depthLocations[i], batchSize + i);
             }
 
             vao = GL30.glGenVertexArrays();
             vbo = GL15.glGenBuffers();
             GL30.glBindVertexArray(vao);
             GL15.glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            GL15.glBufferData(GL_ARRAY_BUFFER, (long) MAX_PAIRS * STRIDE, GL_STREAM_DRAW);
+            GL15.glBufferData(GL_ARRAY_BUFFER, (long) batchSize * STRIDE, GL_STREAM_DRAW);
             attribute(0, 4, 0L);
             attribute(1, 4, 16L);
             attribute(2, 4, 32L);
             attribute(3, 4, 48L);
             attribute(4, 2, 64L);
             state = State.READY;
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER renderer=ready batch=" + batchSize);
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 renderer=ready batch=" + batchSize
+                    + " tex_units=" + textureUnits);
         } catch (Throwable failure) {
             state = State.FAILED;
             PZWorldCompiler.rendererFailed(failure);
@@ -209,20 +213,20 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
                 + "}\n";
     }
 
-    private static String fragmentShader() {
+    private static String fragmentShader(int pairs) {
         StringBuilder shader = new StringBuilder("#version 330 core\n");
-        for (int i = 0; i < MAX_PAIRS; i++) shader.append("uniform sampler2D uColor").append(i).append(";\n");
-        for (int i = 0; i < MAX_PAIRS; i++) shader.append("uniform sampler2D uDepth").append(i).append(";\n");
+        for (int i = 0; i < pairs; i++) shader.append("uniform sampler2D uColor").append(i).append(";\n");
+        for (int i = 0; i < pairs; i++) shader.append("uniform sampler2D uDepth").append(i).append(";\n");
         shader.append("in vec2 vUv; flat in int vSlot; flat in float vDepth; out vec4 fragColor;\n")
                 .append("vec4 colorAt(int s){\n");
-        for (int i = 0; i < MAX_PAIRS - 1; i++) {
+        for (int i = 0; i < pairs - 1; i++) {
             shader.append(" if(s==").append(i).append(") return texture(uColor").append(i).append(",vUv);\n");
         }
-        shader.append(" return texture(uColor7,vUv); }\nfloat depthAt(int s){\n");
-        for (int i = 0; i < MAX_PAIRS - 1; i++) {
+        shader.append(" return texture(uColor").append(pairs - 1).append(",vUv); }\nfloat depthAt(int s){\n");
+        for (int i = 0; i < pairs - 1; i++) {
             shader.append(" if(s==").append(i).append(") return texture(uDepth").append(i).append(",vUv).r;\n");
         }
-        shader.append(" return texture(uDepth7,vUv).r; }\n")
+        shader.append(" return texture(uDepth").append(pairs - 1).append(",vUv).r; }\n")
                 .append("void main(){ fragColor=colorAt(vSlot); gl_FragDepth=vDepth+depthAt(vSlot); }\n");
         return shader.toString();
     }

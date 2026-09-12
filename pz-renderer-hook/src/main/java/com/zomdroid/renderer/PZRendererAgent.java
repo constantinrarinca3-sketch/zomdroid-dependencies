@@ -29,7 +29,7 @@ public final class PZRendererAgent {
         String renderer = System.getProperty("zomdroid.renderer", "");
         String flag = System.getenv("MOBILEGLUES_PZ_WORLD_COMPILER");
         if (!enabled(renderer, flag)) {
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V3 enabled=0");
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 enabled=0");
             return;
         }
         try {
@@ -41,7 +41,7 @@ public final class PZRendererAgent {
                         public void onTransformation(TypeDescription typeDescription, ClassLoader classLoader,
                                                      JavaModule module, boolean loaded, DynamicType dynamicType) {
                             if ("zombie.core.SpriteRenderer".equals(typeDescription.getName())) {
-                                System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V3 hook=transformed class=zombie.core.SpriteRenderer");
+                                System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 hook=transformed class=zombie.core.SpriteRenderer");
                             }
                         }
 
@@ -49,7 +49,7 @@ public final class PZRendererAgent {
                         public void onError(String typeName, ClassLoader classLoader, JavaModule module,
                                             boolean loaded, Throwable throwable) {
                             if ("zombie.core.SpriteRenderer".equals(typeName)) {
-                                System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V3 hook=error reason=" + throwable);
+                                System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 hook=error reason=" + throwable);
                             }
                         }
                     })
@@ -59,9 +59,9 @@ public final class PZRendererAgent {
                             builder.visit(Advice.to(WorldPassAdvice.class)
                                     .on(ElementMatchers.named("buildStateDrawBuffer"))))
                     .installOn(instrumentation);
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V3 enabled=1 hook=installed version=3 census=world");
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 enabled=1 hook=installed version=4 census=world+grammar");
         } catch (Throwable failure) {
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V3 enabled=0 hook=error reason=" + failure);
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V4 enabled=0 hook=error reason=" + failure);
         }
     }
 }

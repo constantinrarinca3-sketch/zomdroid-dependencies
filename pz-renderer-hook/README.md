@@ -1,19 +1,21 @@
-# PZRendererHook V3 census (experimental)
+# PZRendererHook V4 batch + grammar (experimental)
 
-V3 keeps the validated V2 normal cached-chunk compiler and adds a read-only census over the exact
-Project Zomboid WORLD submission (`SpriteRenderer.buildStateDrawBuffer`). UI remains structurally
-excluded because `buildStateUIDrawBuffer` is never hooked.
+V4 keeps the validated WORLD-only `SpriteRenderer.buildStateDrawBuffer` hook and the conservative
+cached-chunk compiler. UI remains structurally excluded because `buildStateUIDrawBuffer` is never
+hooked.
 
-The census does **not** batch new tile families yet. It measures how much of the remaining WORLD
-stream can be grouped conservatively without crossing PZ command/state barriers:
+This build does two things in the same run:
 
-- plain textured `glDraw` runs: up to 16 distinct textures per estimated batch;
-- color+depth `glDraw` runs: up to 8 distinct color textures and 8 distinct depth textures;
-- `useAttribArray`, non-transparent styles, null textures, `tex2`, and every non-draw command break
-  or exclude a candidate.
+1. **Real batching:** the proven cached-chunk renderer now sizes its instanced batch from
+   `GL_MAX_TEXTURE_IMAGE_UNITS`, using two samplers per color/depth pair and capping at 16 pairs.
+   A 16-unit device stays at batch 8; a 32-unit device can use batch 16.
+2. **Passive command-grammar census:** every eligible WORLD `glDraw` with `tex1 != null`,
+   `tex2 == null`, transparent style and no attrib array is classified by the exact immediate
+   command before and after it, split by whether a non-zero `StartShader` is active. This census
+   never changes the command stream and is emitted only when `MOBILEGLUES_PZ_CENSUS=1`.
 
-This is intentionally a measurement build. The next renderer backend should only target the family
-that the census proves is large enough to matter.
+The broader V3 WORLD census remains in the same JAR so one device run provides both aggregate draw
+shape and the exact `tex1` command grammar needed for the next safe compiler extension.
 
 Enable with:
 
@@ -21,21 +23,24 @@ Enable with:
 MOBILEGLUES_PZ_WORLD_COMPILER=1
 MOBILEGLUES_PZ_CENSUS=1
 -Dzomdroid.renderer=MOBILEGLUES_EXPERIMENTAL
--javaagent:/storage/emulated/0/Download/PZRendererHook-v3-census.jar
+-javaagent:/storage/emulated/0/Download/PZRendererHook-v4-batch-grammar.jar
 ```
 
 Expected startup markers:
 
 ```text
-ZOMDROID_PZ_WORLD_COMPILER_V3 enabled=1 hook=installed version=3 census=world
-ZOMDROID_PZ_WORLD_COMPILER_V3 hook=transformed class=zombie.core.SpriteRenderer
+ZOMDROID_PZ_WORLD_COMPILER_V4 enabled=1 hook=installed version=4 census=world+grammar
+ZOMDROID_PZ_WORLD_COMPILER_V4 hook=transformed class=zombie.core.SpriteRenderer
+ZOMDROID_PZ_WORLD_COMPILER_V4 renderer=ready batch=... tex_units=...
 ```
 
-Every 300 WORLD submissions the new line is:
+Every 300 WORLD submissions:
 
 ```text
-ZOMDROID_PZ_WORLD_CENSUS_V3 ... plain_src=... plain_batches16=... plain_elim_est=... depth_src=... depth_batches8=... depth_elim_est=...
+ZOMDROID_PZ_WORLD_CENSUS_V4 ...
+ZOMDROID_PZ_WORLD_GRAMMAR_V4 frames=... tex1_draws=... shader0=... shaderN=... top=PREV>NEXT@S0|SN:count,...
+ZOMDROID_PZ_WORLD_COMPILER_V4 ... source_draws=... backend_draws=... eliminated=...
 ```
 
-The existing V2 telemetry remains active in the same run, so the already validated cached-chunk
-compiler can be compared against the larger candidate families.
+`top=` is a compact histogram over all observed eligible `tex1` draws. It records the exact immediate
+neighbor command pair and whether shader 0 (`S0`) or a non-zero shader (`SN`) was active at the draw.

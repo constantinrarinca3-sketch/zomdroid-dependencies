@@ -61,7 +61,7 @@ public final class WorldDrawCensus {
         depthMaxRun = Math.max(depthMaxRun, e.depthMaxRun);
 
         if (frames % REPORT_EVERY == 0) {
-            System.out.println("ZOMDROID_PZ_WORLD_CENSUS_V3 frames=" + frames
+            System.out.println("ZOMDROID_PZ_WORLD_CENSUS_V4 frames=" + frames
                     + " entries=" + entries
                     + " gl_draw=" + glDraws
                     + " transparent=" + transparentDraws
