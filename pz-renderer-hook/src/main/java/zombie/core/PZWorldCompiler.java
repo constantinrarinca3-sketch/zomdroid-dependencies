@@ -27,6 +27,10 @@ public final class PZWorldCompiler {
     private static long rejectStyle;
     private static int maxBatch;
     private static long depthEligibleDraws;
+    private static long depthCandidatePackets;
+    private static long depthShaderGateRejects;
+    private static long depthParamsRejects;
+    private static long depthDrawRejects;
     private static long depthPlannedDraws;
     private static long depthCompiledGroups;
     private static long depthSourceDraws;
@@ -50,13 +54,17 @@ public final class PZWorldCompiler {
         final DepthBatchPlanner.Plan depthPlan;
         try {
             chunkCandidates = findBlocks(draws, styles, count);
-            depthPlan = DepthBatchPlanner.plan(draws, styles, count, DepthBatchRenderer::shaderAllowed);
+            depthPlan = DepthBatchPlanner.plan(draws, styles, count);
         } catch (Throwable failure) {
             disabled = true;
             System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 disabled=1 stage=validate reason=" + failure);
             return false;
         }
         depthEligibleDraws += depthPlan.eligibleDraws();
+        depthCandidatePackets += depthPlan.candidatePackets();
+        depthShaderGateRejects += depthPlan.shaderRejected();
+        depthParamsRejects += depthPlan.paramsRejected();
+        depthDrawRejects += depthPlan.drawRejected();
         depthPlannedDraws += depthPlan.plannedDraws();
         depthRedundantMasks += depthPlan.redundantDepthMasks();
 
@@ -336,6 +344,10 @@ public final class PZWorldCompiler {
                 + " reject_command=" + rejectCommand
                 + " reject_draw=" + rejectDraw
                 + " reject_style=" + rejectStyle
+                + " depth_candidates=" + depthCandidatePackets
+                + " depth_gate_reject=" + depthShaderGateRejects
+                + " depth_params_reject=" + depthParamsRejects
+                + " depth_draw_reject=" + depthDrawRejects
                 + " depth_eligible=" + depthEligibleDraws
                 + " depth_planned=" + depthPlannedDraws
                 + " depth_groups=" + depthCompiledGroups

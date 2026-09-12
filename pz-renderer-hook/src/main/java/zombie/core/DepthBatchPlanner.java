@@ -19,9 +19,13 @@ public final class DepthBatchPlanner {
 
     private DepthBatchPlanner() {}
 
+    public static Plan plan(TextureDraw[] draws, Style[] styles, int count) {
+        return plan(draws, styles, count, shaderId -> true);
+    }
+
     public static Plan plan(TextureDraw[] draws, Style[] styles, int count, IntPredicate shaderAllowed) {
         if (draws == null || styles == null || shaderAllowed == null || count <= 0) {
-            return new Plan(List.of(), 0, 0, 0);
+            return new Plan(List.of(), 0, 0, 0, 0, 0, 0, 0);
         }
         int limit = Math.min(count, Math.min(draws.length, styles.length));
         ArrayList<Group> groups = new ArrayList<>();
@@ -31,6 +35,10 @@ public final class DepthBatchPlanner {
         long eligible = 0;
         long planned = 0;
         long redundantMasks = 0;
+        long candidatePackets = 0;
+        long shaderRejected = 0;
+        long paramsRejected = 0;
+        long drawRejected = 0;
 
         for (int i = 0; i < limit; i++) {
             TextureDraw command = draws[i];
@@ -53,10 +61,15 @@ public final class DepthBatchPlanner {
                 continue;
             }
 
-            if (isPacketStart(draws, styles, i, limit, shaderAllowed)) {
+            PacketCheck packet = inspectPacket(draws, styles, i, limit, shaderAllowed);
+            if (packet.candidate) candidatePackets++;
+            if (packet.shaderRejected) shaderRejected++;
+            if (packet.paramsRejected) paramsRejected++;
+            if (packet.drawRejected) drawRejected++;
+            if (packet.eligible()) {
                 TextureDraw start = command;
                 TextureDraw draw = draws[i + 1];
-                DepthUniformSnapshot params = DepthUniformSnapshot.capture(start.drawer);
+                DepthUniformSnapshot params = packet.params;
                 eligible++;
                 if (current == null
                         || current.shaderId != start.a
@@ -77,7 +90,8 @@ public final class DepthBatchPlanner {
             }
         }
         if (current != null) planned += flush(groups, current);
-        return new Plan(Collections.unmodifiableList(groups), eligible, planned, redundantMasks);
+        return new Plan(Collections.unmodifiableList(groups), eligible, planned, redundantMasks,
+                candidatePackets, shaderRejected, paramsRejected, drawRejected);
     }
 
     private static long flush(ArrayList<Group> groups, Builder builder) {
@@ -87,14 +101,27 @@ public final class DepthBatchPlanner {
         return group.sourceDraws();
     }
 
-    private static boolean isPacketStart(TextureDraw[] draws, Style[] styles, int at, int limit, IntPredicate shaderAllowed) {
-        if (at < 0 || at + 1 >= limit) return false;
+    private static PacketCheck inspectPacket(TextureDraw[] draws, Style[] styles, int at, int limit, IntPredicate shaderAllowed) {
+        if (at < 0 || at + 1 >= limit) return PacketCheck.NONE;
         TextureDraw start = draws[at];
         TextureDraw draw = draws[at + 1];
-        if (start == null || draw == null || start.type != Type.StartShader || start.a == 0 || draw.type != Type.glDraw) return false;
-        if (!shaderAllowed.test(start.a) || !transparent(styles[at]) || !transparent(styles[at + 1])) return false;
-        if (DepthUniformSnapshot.capture(start.drawer) == null) return false;
-        return supportedDraw(draw);
+        if (start == null || draw == null || start.type != Type.StartShader || start.a == 0 || draw.type != Type.glDraw) return PacketCheck.NONE;
+        if (!transparent(styles[at]) || !transparent(styles[at + 1])) return PacketCheck.NONE;
+        if (!shaderAllowed.test(start.a)) return PacketCheck.rejectShader();
+        DepthUniformSnapshot params = DepthUniformSnapshot.capture(start.drawer);
+        if (params == null) return PacketCheck.rejectParams();
+        if (!supportedDraw(draw)) return PacketCheck.rejectDraw();
+        return PacketCheck.eligible(params);
+    }
+
+    private record PacketCheck(boolean candidate, boolean shaderRejected, boolean paramsRejected,
+                               boolean drawRejected, DepthUniformSnapshot params) {
+        static final PacketCheck NONE = new PacketCheck(false, false, false, false, null);
+        static PacketCheck rejectShader() { return new PacketCheck(true, true, false, false, null); }
+        static PacketCheck rejectParams() { return new PacketCheck(true, false, true, false, null); }
+        static PacketCheck rejectDraw() { return new PacketCheck(true, false, false, true, null); }
+        static PacketCheck eligible(DepthUniformSnapshot params) { return new PacketCheck(true, false, false, false, params); }
+        boolean eligible() { return params != null && !shaderRejected && !paramsRejected && !drawRejected; }
     }
 
     private static boolean supportedDraw(TextureDraw d) {
@@ -120,7 +147,8 @@ public final class DepthBatchPlanner {
         public int sourceDraws() { return draws.size(); }
     }
 
-    public record Plan(List<Group> groups, long eligibleDraws, long plannedDraws, long redundantDepthMasks) {}
+    public record Plan(List<Group> groups, long eligibleDraws, long plannedDraws, long redundantDepthMasks,
+                       long candidatePackets, long shaderRejected, long paramsRejected, long drawRejected) {}
 
     private static final class Builder {
         final int start;
