@@ -1,4 +1,4 @@
-# PZRendererHook V5.3 stable
+# PZRendererHook V5.3.1 texture fix
 
 V5 keeps the WORLD-only `SpriteRenderer.buildStateDrawBuffer` hook, the validated V2 cached-chunk compiler,
 and the V4 passive world/grammar census.  It adds an actual batching path for the dominant B42.20.3
@@ -31,19 +31,23 @@ The stable build leaves the WORLD compiler opt-in. With Census disabled, it bypa
 WORLD/grammar scans, cumulative optimization counters and periodic reports; only the compiler and
 the two validated batching backends remain in the WORLD hot path.
 
+V5.3.1 binds every cached-chunk color texture directly after selecting its texture unit. PZ's
+`Texture.bind()` cache tracks only one global texture ID and could otherwise skip a required bind
+when the same texture moved between sampler slots, leaving a stale texture visible or hiding a tile.
+
 Enable:
 
 ```text
 MOBILEGLUES_PZ_WORLD_COMPILER=1
 MOBILEGLUES_PZ_CENSUS=1
 -Dzomdroid.renderer=MOBILEGLUES_EXPERIMENTAL
--javaagent:/storage/emulated/0/Download/PZRendererHook-v5.3-stable.jar
+-javaagent:/storage/emulated/0/Download/PZRendererHook-v5.3.1-texture-fix.jar
 ```
 
 Expected startup:
 
 ```text
-ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.3-stable census=1
+ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.3.1-texture-fix census=1
 ZOMDROID_PZ_WORLD_COMPILER_V5 hook=transformed class=zombie.core.SpriteRenderer
 ```
 

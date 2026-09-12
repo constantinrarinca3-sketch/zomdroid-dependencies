@@ -60,7 +60,7 @@ public final class PZRendererAgent {
                                     .on(ElementMatchers.named("buildStateDrawBuffer"))))
                     .installOn(instrumentation);
             boolean census = "1".equals(System.getenv("MOBILEGLUES_PZ_CENSUS"));
-            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.3-stable census="
+            System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=1 hook=installed version=5.3.1-texture-fix census="
                     + (census ? "1" : "0"));
         } catch (Throwable failure) {
             System.out.println("ZOMDROID_PZ_WORLD_COMPILER_V5 enabled=0 hook=error reason=" + failure);

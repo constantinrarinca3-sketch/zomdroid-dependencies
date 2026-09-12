@@ -85,7 +85,7 @@ final class ChunkBatchRenderer extends TextureDraw.GenericDrawer {
                 for (int slot = 0; slot < count; slot++) {
                     PZWorldCompiler.ChunkDraw chunk = chunks.get(first + slot);
                     GL13.glActiveTexture(GL_TEXTURE0 + slot);
-                    chunk.color.bind();
+                    GL11.glBindTexture(GL_TEXTURE_2D, chunk.color.getID());
                     GL13.glActiveTexture(GL_TEXTURE0 + batchSize + slot);
                     GL11.glBindTexture(GL_TEXTURE_2D, chunk.depth.getID());
                 }
